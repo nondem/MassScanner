@@ -9,6 +9,7 @@ scanning operations.
 import customtkinter as ctk
 import json
 import os
+import time
 from queue import Queue, Empty
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -111,7 +112,7 @@ class MainWindow(ctk.CTk):
             values=["Scanner", "Manual Radio"],
             command=self._on_mode_change
         )
-        self.mode_button.set("Scanner")
+        self.mode_button.set("Manual Radio")
         self.mode_button.pack(fill="x", padx=5, pady=(0, 10))
         
         # --- Frame 2: Manual Tuning ---
@@ -189,6 +190,14 @@ class MainWindow(ctk.CTk):
         self.buffer_slider = ctk.CTkSlider(settings_frame, from_=50000, to=500000, number_of_steps=450, command=self._on_buffer_change)
         self.buffer_slider.set(204800)
         self.buffer_slider.pack(fill="x", padx=5, pady=(0, 10))
+        
+        # PPM Correction
+        ctk.CTkLabel(settings_frame, text="PPM Correction", font=ctk.CTkFont(size=11, weight="bold")).pack(pady=(5, 0))
+        self.ppm_value_label = ctk.CTkLabel(settings_frame, text="0 ppm", text_color="#3498db")
+        self.ppm_value_label.pack(pady=(0, 2))
+        self.ppm_slider = ctk.CTkSlider(settings_frame, from_=-100, to=100, number_of_steps=200, command=self._on_ppm_change)
+        self.ppm_slider.set(0)
+        self.ppm_slider.pack(fill="x", padx=5, pady=(0, 10))
     
     def _create_widgets(self) -> None:
         """Create and layout all GUI components."""
@@ -214,10 +223,10 @@ class MainWindow(ctk.CTk):
         control_frame.grid(row=1, column=1, sticky="ew", padx=10, pady=5)
         control_frame.grid_columnconfigure(2, weight=1)
         
-        self.start_button = ctk.CTkButton(control_frame, text="Start Scan", command=self._on_start_scan, fg_color="#2ecc71")
+        self.start_button = ctk.CTkButton(control_frame, text="Start", command=self._on_start_scan, fg_color="#2ecc71")
         self.start_button.grid(row=0, column=0, padx=5)
         
-        self.stop_button = ctk.CTkButton(control_frame, text="Stop Scan", command=self._on_stop_scan, fg_color="#e74c3c", state="disabled")
+        self.stop_button = ctk.CTkButton(control_frame, text="Stop", command=self._on_stop_scan, fg_color="#e74c3c", state="disabled")
         self.stop_button.grid(row=0, column=1, padx=5)
         
         self.status_label = ctk.CTkLabel(control_frame, text="Status: Idle", font=ctk.CTkFont(size=12), text_color="#95a5a6")
@@ -267,6 +276,9 @@ class MainWindow(ctk.CTk):
         band_text = f"Enabled Bands: {', '.join(enabled_bands) if enabled_bands else 'None'}"
         self.band_label = ctk.CTkLabel(info_frame, text=band_text, font=ctk.CTkFont(size=10), text_color="#95a5a6")
         self.band_label.grid(row=1, column=0, sticky="w")
+        
+        # Initialize Manual Radio mode after all widgets are created
+        self._on_mode_change("Manual Radio")
     
     def _on_gain_change(self, value: float) -> None:
         gain: float = float(value)
@@ -301,6 +313,11 @@ class MainWindow(ctk.CTk):
             freq_mhz = float(self.freq_entry.get())
             freq_hz = freq_mhz * 1e6
             self.scanner.set_manual_freq(freq_hz)
+            
+            # If scanner is running, immediately tune the hardware
+            if self.is_scanning and self.driver.is_connected:
+                self.driver.tune(freq_hz)
+            
             print(f"Tuned to {freq_mhz:.3f} MHz")
         except ValueError:
             print("Invalid frequency entry")
@@ -365,6 +382,27 @@ class MainWindow(ctk.CTk):
         self.buffer_value_label.configure(text=f"{buf/1000:.0f}k")
         self.scanner.set_buffer_size(buf)
     
+    def _on_ppm_change(self, value: float) -> None:
+        ppm = int(float(value))
+        self.ppm_value_label.configure(text=f"{ppm} ppm")
+        
+        # If running, stop temporarily to apply PPM correction cleanly
+        was_running = self.is_scanning
+        if was_running:
+            self.scanner.stop_scan()
+            time.sleep(0.1)  # Brief pause for thread to stop
+        
+        # Apply PPM correction
+        self.driver.set_ppm_correction(ppm)
+        
+        # Restart if it was running
+        if was_running:
+            if self.scanner.is_manual_mode():
+                current_freq = self.scanner.get_manual_freq()
+                self.driver.tune(current_freq)
+                print(f"Re-tuned to {current_freq/1e6:.3f} MHz with PPM {ppm}")
+            self.scanner.start_scan()
+    
     def _on_start_scan(self) -> None:
         if self.is_scanning: return
         if not self.driver.connect():
@@ -407,10 +445,12 @@ class MainWindow(ctk.CTk):
         
         if self.scanner.is_manual_mode():
             freq = self.scanner.get_manual_freq() / 1e6
-            self._update_status(f"Manual Mode: {freq:.3f} MHz", "#e74c3c")
+            status = "Manual" if not self.is_scanning else f"Manual: {freq:.3f} MHz"
+            color = "#e74c3c" if self.is_scanning else "#95a5a6"
+            self._update_status(status, color)
         else:
-            status = "Scanning" if self.scanner.scanning else "Idle"
-            color = "#27ae60" if self.scanner.scanning else "#95a5a6"
+            status = "Scanning" if self.is_scanning else "Scanner Idle"
+            color = "#27ae60" if self.is_scanning else "#95a5a6"
             self._update_status(status, color)
             
         self.after(100, self.poll_queue)
