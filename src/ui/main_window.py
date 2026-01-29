@@ -125,11 +125,46 @@ class MainWindow(ctk.CTk):
         freq_entry_label = ctk.CTkLabel(tuning_frame, text="Frequency (MHz)", font=ctk.CTkFont(size=10))
         freq_entry_label.pack(anchor="w", padx=5, pady=(0, 2))
         
-        self.freq_entry = ctk.CTkEntry(tuning_frame, placeholder_text="146.520")
-        self.freq_entry.pack(fill="x", padx=5, pady=(0, 8))
-        self.freq_entry.bind("<Up>", self._on_freq_scroll)
-        self.freq_entry.bind("<Down>", self._on_freq_scroll)
-        self.freq_entry.bind("<MouseWheel>", self._on_freq_scroll)
+        # Digit-by-digit frequency entry with up/down controls
+        digit_container = ctk.CTkFrame(tuning_frame, fg_color="transparent")
+        digit_container.pack(fill="x", padx=5, pady=(0, 8))
+        
+        self.freq_digits = []
+        self.freq_labels = []
+        digit_positions = [0, 1, 2, None, 3, 4, 5, None, 6, 7, 8, None, 9, 10, 11]  # None = dot separator
+        
+        for idx, pos in enumerate(digit_positions):
+            if pos is None:
+                # Add dot separator
+                dot_label = ctk.CTkLabel(digit_container, text=".", font=ctk.CTkFont(size=16, weight="bold"), width=10)
+                dot_label.grid(row=1, column=idx, padx=2)
+            else:
+                # Create digit column with up/down arrows
+                digit_frame = ctk.CTkFrame(digit_container, fg_color="transparent")
+                digit_frame.grid(row=0, column=idx, rowspan=3, padx=2)
+                
+                # Up arrow
+                up_btn = ctk.CTkButton(digit_frame, text="▲", width=30, height=20, 
+                                      command=lambda p=pos: self._increment_digit(p),
+                                      font=ctk.CTkFont(size=10), state="disabled")
+                up_btn.pack()
+                
+                # Digit display
+                digit_label = ctk.CTkLabel(digit_frame, text="0", font=ctk.CTkFont(size=16, weight="bold"),
+                                          width=30, height=30, fg_color="#2b2b2b", corner_radius=5)
+                digit_label.pack(pady=2)
+                
+                # Down arrow
+                down_btn = ctk.CTkButton(digit_frame, text="▼", width=30, height=20,
+                                        command=lambda p=pos: self._decrement_digit(p),
+                                        font=ctk.CTkFont(size=10), state="disabled")
+                down_btn.pack()
+                
+                self.freq_digits.append(digit_label)
+                self.freq_labels.append((up_btn, down_btn))
+        
+        # Initialize frequency display to 146.520.000.000
+        self._set_frequency_display(146.520)
         
         stepper_frame = ctk.CTkFrame(tuning_frame, fg_color="transparent")
         stepper_frame.pack(fill="x", padx=5, pady=(0, 8))
@@ -280,6 +315,50 @@ class MainWindow(ctk.CTk):
         # Initialize Manual Radio mode after all widgets are created
         self._on_mode_change("Manual Radio")
     
+    def _set_frequency_display(self, freq_mhz: float) -> None:
+        """Update the digit display with a frequency value."""
+        # Format: xxx.xxx.xxx.xxx (12 digits total)
+        # Example: 146.520 MHz = 146.520000000
+        freq_str = f"{freq_mhz:012.6f}".replace(".", "")
+        for i, digit_label in enumerate(self.freq_digits):
+            digit_label.configure(text=freq_str[i] if i < len(freq_str) else "0")
+    
+    def _get_frequency_from_display(self) -> float:
+        """Read the frequency from the digit display."""
+        freq_str = "".join([label.cget("text") for label in self.freq_digits])
+        # Insert decimal point after 3rd digit: xxx.xxxxxxxxx
+        freq_with_decimal = freq_str[:3] + "." + freq_str[3:]
+        return float(freq_with_decimal)
+    
+    def _increment_digit(self, position: int) -> None:
+        """Increment a specific digit position."""
+        current = int(self.freq_digits[position].cget("text"))
+        new_value = (current + 1) % 10
+        self.freq_digits[position].configure(text=str(new_value))
+        self._apply_frequency_change()
+    
+    def _decrement_digit(self, position: int) -> None:
+        """Decrement a specific digit position."""
+        current = int(self.freq_digits[position].cget("text"))
+        new_value = (current - 1) % 10
+        self.freq_digits[position].configure(text=str(new_value))
+        self._apply_frequency_change()
+    
+    def _apply_frequency_change(self) -> None:
+        """Apply the frequency shown in the digit display."""
+        try:
+            freq_mhz = self._get_frequency_from_display()
+            freq_hz = freq_mhz * 1e6
+            self.scanner.set_manual_freq(freq_hz)
+            
+            # If scanner is running, immediately tune the hardware
+            if self.is_scanning and self.driver.is_connected:
+                self.driver.tune(freq_hz)
+            
+            print(f"Tuned to {freq_mhz:.6f} MHz")
+        except Exception as e:
+            print(f"Error applying frequency: {e}")
+    
     def _on_gain_change(self, value: float) -> None:
         gain: float = float(value)
         if gain == 0:
@@ -303,72 +382,31 @@ class MainWindow(ctk.CTk):
         is_manual = (mode == "Manual Radio")
         self.scanner.toggle_mode(is_manual)
         state = "normal" if is_manual else "disabled"
-        self.freq_entry.configure(state=state)
+        
+        # Enable/disable digit controls
+        for up_btn, down_btn in self.freq_labels:
+            up_btn.configure(state=state)
+            down_btn.configure(state=state)
+        
         self.tune_button.configure(state=state)
         self.freq_down_button.configure(state=state)
         self.freq_up_button.configure(state=state)
     
     def _on_tune_clicked(self) -> None:
-        try:
-            freq_mhz = float(self.freq_entry.get())
-            freq_hz = freq_mhz * 1e6
-            self.scanner.set_manual_freq(freq_hz)
-            
-            # If scanner is running, immediately tune the hardware
-            if self.is_scanning and self.driver.is_connected:
-                self.driver.tune(freq_hz)
-            
-            print(f"Tuned to {freq_mhz:.3f} MHz")
-        except ValueError:
-            print("Invalid frequency entry")
+        """Apply the current frequency from digit display."""
+        self._apply_frequency_change()
     
     def change_freq_step(self, step_mhz: float) -> None:
-        current_text = self.freq_entry.get().strip().replace('MHz', '').replace('mhz', '').strip()
-        try:
-            current_freq = float(current_text) if current_text else 144.000
-        except ValueError:
-            current_freq = 144.000
-        
-        new_freq = current_freq + step_mhz
-        self.freq_entry.delete(0, "end")
-        self.freq_entry.insert(0, f"{new_freq:.4f}")
-        self.scanner.set_manual_freq(new_freq * 1e6)
-        print(f"Tuned to {new_freq:.4f} MHz")
+        current_freq = self._get_frequency_from_display()
+        new_freq = max(0.001, current_freq + step_mhz)
+        self._set_frequency_display(new_freq)
+        self._apply_frequency_change()
     
     def _on_freq_down(self) -> None:
         self.change_freq_step(-0.025)
     
     def _on_freq_up(self) -> None:
         self.change_freq_step(0.025)
-    
-    def _on_freq_scroll(self, event) -> None:
-        if not self.scanner.is_manual_mode(): return
-        
-        try: cursor_pos = self.freq_entry.index("insert")
-        except: cursor_pos = 0
-        
-        current_text = self.freq_entry.get().strip().replace('MHz', '').replace('mhz', '').strip()
-        try: current_freq = float(current_text) if current_text else 144.000
-        except ValueError: current_freq = 144.000
-        
-        decimal_pos = current_text.index('.') if '.' in current_text else len(current_text)
-        if cursor_pos == decimal_pos: return
-        
-        power = decimal_pos - cursor_pos
-        step = 10 ** power
-        
-        if event.type == "4":  # KeyPress
-            if event.keysym == "Up": direction = 1
-            elif event.keysym == "Down": direction = -1
-            else: return
-        else:  # MouseWheel
-            direction = 1 if event.delta > 0 else -1
-        
-        new_freq = max(0.001, current_freq + (step * direction))
-        self.freq_entry.delete(0, "end")
-        self.freq_entry.insert(0, f"{new_freq:.4f}")
-        self.freq_entry.icursor(cursor_pos)
-        self.scanner.set_manual_freq(new_freq * 1e6)
     
     def _on_volume_change(self, value: float) -> None:
         vol = int(float(value))
@@ -383,6 +421,25 @@ class MainWindow(ctk.CTk):
         self.scanner.set_buffer_size(buf)
     
     def _on_ppm_change(self, value: float) -> None:
+        ppm = int(float(value))
+        self.ppm_value_label.configure(text=f"{ppm} ppm")
+        
+        # If running, stop temporarily to apply PPM correction cleanly
+        was_running = self.is_scanning
+        if was_running:
+            self.scanner.stop_scan()
+            time.sleep(0.1)  # Brief pause for thread to stop
+        
+        # Apply PPM correction
+        self.driver.set_ppm_correction(ppm)
+        
+        # Restart if it was running
+        if was_running:
+            if self.scanner.is_manual_mode():
+                current_freq = self.scanner.get_manual_freq()
+                self.driver.tune(current_freq)
+                print(f"Re-tuned to {current_freq/1e6:.3f} MHz with PPM {ppm}")
+            self.scanner.start_scan()
         ppm = int(float(value))
         self.ppm_value_label.configure(text=f"{ppm} ppm")
         
