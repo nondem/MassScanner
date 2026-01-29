@@ -1,10 +1,10 @@
-# SpectrumScanner
+# MassScanner
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-Active-success)
 
-**SpectrumScanner** is a dual-mode desktop application for RTL-SDR dongles. It combines a wide-band frequency scanner with a manual FM radio receiver, allowing users to detect signals and immediately tune in to listen.
+**MassScanner** is a dual-mode desktop application for RTL-SDR dongles. It combines a wide-band frequency scanner with a manual FM radio receiver, allowing users to detect signals and immediately tune in to listen.
 
 Built with **Python**, **CustomTkinter**, and **PyRTLSDR**, it features a modern dark-mode GUI, real-time spectrum visualization, and robust DSP audio processing.
 
@@ -31,5 +31,5 @@ Built with **Python**, **CustomTkinter**, and **PyRTLSDR**, it features a modern
 
 ### 1. Clone the Repository
 ```bash
-git clone [https://github.com/YOUR_USERNAME/SpectrumScanner.git](https://github.com/YOUR_USERNAME/SpectrumScanner.git)
-cd SpectrumScanner
+git clone [https://github.com/YOUR_USERNAME/MassScanner.git](https://github.com/YOUR_USERNAME/MassScanner.git)
+cd MassScanner
