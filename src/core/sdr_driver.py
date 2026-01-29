@@ -32,7 +32,7 @@ class SdrDriver:
             device_index: USB device index for multi-SDR support (default: 0)
         """
         self.device_index: int = device_index
-        self.sdr: Optional["RtlSdr"] = None
+        self.sdr: Optional[RtlSdr] = None
         self.is_connected: bool = False
         self.ppm_error: int = 0  # Frequency correction in PPM
         self._device_lock: threading.Lock = threading.Lock()  # Thread-safe device access

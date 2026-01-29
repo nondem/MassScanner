@@ -38,10 +38,7 @@ class MainWindow(ctk.CTk):
         
         # Configure window
         self.title("SpectrumScanner")
-        self.geometry("1200x900") # Force a large default size
-        
-        # Force maximize after 100ms to ensure OS is ready
-        self.after(100, lambda: self._maximize_window())
+        # Window will auto-size after all widgets are created
         
         # Initialize queues
         self.result_queue: Queue = Queue()
@@ -69,6 +66,9 @@ class MainWindow(ctk.CTk):
         # Create GUI components
         self._create_widgets()
         
+        # Load saved frequency and volume
+        self._load_frequency_and_volume()
+        
         # Set up window close handler
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
         
@@ -81,6 +81,51 @@ class MainWindow(ctk.CTk):
             self.state("zoomed")
         except:
             pass
+    
+    def _auto_size_window(self) -> None:
+        """Auto-size window to fit all controls compactly."""
+        self.update_idletasks()  # Process pending geometry requests
+        # Get the minimum needed size
+        self.geometry(f"{self.winfo_reqwidth()}x{self.winfo_reqheight()}")
+    
+    def _load_frequency_and_volume(self) -> None:
+        """Load saved frequency and volume from config file."""
+        try:
+            config_path = "src/config/ui_state.json"
+            if os.path.exists(config_path):
+                with open(config_path, "r") as f:
+                    state = json.load(f)
+                    freq = state.get("frequency_mhz", 146.520)
+                    self._set_frequency_display(freq)
+                    vol = state.get("volume_percent", 50)
+                    self.volume_slider.set(vol)
+                    print(f"Loaded saved state: {freq:.6f} MHz, {vol}% volume")
+            else:
+                # Default values
+                self._set_frequency_display(146.520)
+                self.volume_slider.set(50)
+        except Exception as e:
+            print(f"Error loading saved state: {e}")
+            self._set_frequency_display(146.520)
+            self.volume_slider.set(50)
+    
+    def _save_frequency_and_volume(self) -> None:
+        """Save current frequency and volume to config file."""
+        try:
+            config_dir = "src/config"
+            os.makedirs(config_dir, exist_ok=True)
+            
+            freq = self._get_frequency_from_display()
+            vol = int(self.volume_slider.get())
+            
+            state = {"frequency_mhz": freq, "volume_percent": vol}
+            
+            with open(os.path.join(config_dir, "ui_state.json"), "w") as f:
+                json.dump(state, f, indent=2)
+            
+            print(f"Saved state: {freq:.6f} MHz, {vol}% volume")
+        except Exception as e:
+            print(f"Error saving state: {e}")
 
     def _load_bands(self) -> List[Dict[str, Any]]:
         """Load band configuration from bands.json."""
@@ -185,18 +230,6 @@ class MainWindow(ctk.CTk):
         
         # Initialize frequency display to 146.520.000.000
         self._set_frequency_display(146.520)
-        
-        stepper_frame = ctk.CTkFrame(tuning_frame, fg_color="transparent")
-        stepper_frame.pack(fill="x", padx=5, pady=(0, 8))
-        
-        self.freq_down_button = ctk.CTkButton(stepper_frame, text="-25k", command=self._on_freq_down, width=80, state="disabled")
-        self.freq_down_button.pack(side="left", padx=(0, 5))
-        
-        self.freq_up_button = ctk.CTkButton(stepper_frame, text="+25k", command=self._on_freq_up, width=80, state="disabled")
-        self.freq_up_button.pack(side="left")
-        
-        self.tune_button = ctk.CTkButton(tuning_frame, text="Tune", command=self._on_tune_clicked, state="disabled", fg_color="#3498db")
-        self.tune_button.pack(fill="x", padx=5, pady=(0, 10))
         
         # --- Frame 3: Settings ---
         settings_frame = ctk.CTkFrame(sidebar)
@@ -340,6 +373,9 @@ class MainWindow(ctk.CTk):
         
         # Initialize Manual Radio mode after all widgets are created
         self._on_mode_change("Manual Radio")
+        
+        # Auto-size window to fit all controls
+        self.after(100, self._auto_size_window)
     
     def _set_frequency_display(self, freq_mhz: float) -> None:
         """Update the digit display with a frequency value."""
@@ -382,6 +418,8 @@ class MainWindow(ctk.CTk):
                 self.driver.tune(freq_hz)
             
             print(f"Tuned to {freq_mhz:.6f} MHz")
+            # Save frequency to config
+            self._save_frequency_and_volume()
         except Exception as e:
             print(f"Error applying frequency: {e}")
     
@@ -413,26 +451,6 @@ class MainWindow(ctk.CTk):
         for up_btn, down_btn in self.freq_labels:
             up_btn.configure(state=state)
             down_btn.configure(state=state)
-        
-        self.tune_button.configure(state=state)
-        self.freq_down_button.configure(state=state)
-        self.freq_up_button.configure(state=state)
-    
-    def _on_tune_clicked(self) -> None:
-        """Apply the current frequency from digit display."""
-        self._apply_frequency_change()
-    
-    def change_freq_step(self, step_mhz: float) -> None:
-        current_freq = self._get_frequency_from_display()
-        new_freq = max(0.001, current_freq + step_mhz)
-        self._set_frequency_display(new_freq)
-        self._apply_frequency_change()
-    
-    def _on_freq_down(self) -> None:
-        self.change_freq_step(-0.025)
-    
-    def _on_freq_up(self) -> None:
-        self.change_freq_step(0.025)
     
     def _on_spectrum_toggle(self) -> None:
         """Handle spectrum display toggle."""
@@ -452,6 +470,8 @@ class MainWindow(ctk.CTk):
         if hasattr(self.scanner, 'demodulator') and self.scanner.demodulator:
             if hasattr(self.scanner.demodulator, 'set_volume'):
                 self.scanner.demodulator.set_volume(vol / 100.0)
+        # Save volume to config
+        self._save_frequency_and_volume()
     
     def _on_buffer_change(self, value: float) -> None:
         buf = int(float(value))
@@ -590,6 +610,8 @@ class MainWindow(ctk.CTk):
     
     def _on_closing(self) -> None:
         print("Closing...")
+        # Save current state before closing
+        self._save_frequency_and_volume()
         self.scanner.shutdown()
         self.destroy()
 
