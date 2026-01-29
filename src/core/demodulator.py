@@ -98,7 +98,7 @@ class FMDemodulator:
         return audio.astype(np.float32)
     
     def _demodulate_wfm(self, samples: np.ndarray, sample_rate: float, squelch_threshold_db: float) -> np.ndarray:
-        """Wide FM demodulation (broadcast FM, wider bandwidth)."""
+        """Wide FM demodulation (broadcast FM, wider bandwidth ~200kHz)."""
         if len(samples) == 0:
             return np.array([], dtype=np.float32)
         
@@ -110,20 +110,22 @@ class FMDemodulator:
             num_output_samples = len(samples) // decimation
             return np.zeros(num_output_samples, dtype=np.float32)
         
-        # 2. FM Demodulation
+        # 2. FM Demodulation (same phase detector as NFM)
         x = samples[1:] * np.conj(samples[:-1])
         demodulated = np.angle(x)
         
-        # 3. Decimation with wider passband filter
+        # 3. Decimation with IIR filter for slightly wider passband than NFM
         if sample_rate:
             decimation = int(sample_rate / self.audio_rate)
         else:
             decimation = self.decimation
         
+        # Use IIR filter (allows wider bandwidth than FIR used in NFM)
         audio = scipy.signal.decimate(demodulated, decimation, ftype='iir')
         
-        # 4. De-emphasis filter for WFM
-        b, a = scipy.signal.butter(1, 100, btype='high', fs=self.audio_rate)
+        # 4. Apply de-emphasis filter (standard broadcast FM)
+        # 75 microsecond time constant for de-emphasis
+        b, a = scipy.signal.butter(1, 2100, btype='low', fs=self.audio_rate)
         audio = scipy.signal.lfilter(b, a, audio)
         
         audio = audio * (self.volume * 0.5)

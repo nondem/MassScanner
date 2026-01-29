@@ -81,9 +81,9 @@ class Scanner(threading.Thread):
         # Manual mode parameters (for audio streaming)
         self.manual_mode: bool = False
         self.manual_freq: float = 144.0e6  # Default: 2m amateur band
-        self.buffer_size: int = 204800  # Default buffer size (200 * 1024, divisible by 20)
+        self.buffer_size: int = 133120  # Default buffer size (130 * 1024, divisible by 20)
         self.demod_mode: str = "NFM"  # Demodulation mode: NFM, WFM, or AM
-        self.spectrum_enabled: bool = True  # Whether to generate spectrum data
+        self.spectrum_enabled: bool = False  # Whether to generate spectrum data (disabled by default)
         
         # Initialize audio demodulator and stream
         self._init_audio_stream()
@@ -208,7 +208,7 @@ class Scanner(threading.Thread):
         
         # Spectrum update throttling
         spectrum_counter = 0
-        spectrum_update_interval = 10  # Send spectrum data every 10th iteration (less frequent)
+        spectrum_update_interval = 25  # Send spectrum data every 25th iteration (less frequent for better responsiveness)
         
         while self.scan_paused.is_set() and self.manual_mode:
             try:
@@ -244,14 +244,18 @@ class Scanner(threading.Thread):
     def _generate_spectrum_data(self, samples: np.ndarray) -> None:
         """
         Generate spectrum data from IQ samples and send to raw_data_queue.
-        Uses downsampling and reduced resolution to minimize CPU load.
+        Uses aggressive downsampling and reduced resolution to minimize CPU load.
         
         Args:
             samples: Complex IQ samples from the SDR
         """
         try:
-            # Downsample samples for faster FFT (every 4th sample)
-            downsampled = samples[::4]
+            # Aggressive downsampling for faster FFT (every 8th sample = 8x reduction)
+            downsampled = samples[::8]
+            
+            # Use shorter FFT window (only 512 points max) for faster computation
+            fft_size = min(512, len(downsampled))
+            downsampled = downsampled[:fft_size]
             
             # Perform FFT on downsampled samples
             fft_result: np.ndarray = np.fft.fft(downsampled)
@@ -264,14 +268,14 @@ class Scanner(threading.Thread):
                 np.abs(fft_shifted) ** 2 + 1e-10
             )
             
-            # Further reduce resolution by averaging bins (every 2 bins)
-            power_spectrum = power_spectrum[::2]
+            # Further reduce resolution by averaging bins (every 4 bins = 4x reduction)
+            power_spectrum = power_spectrum[::4]
             
             # Calculate frequency bins for the spectrum (adjusted for downsampling)
-            sample_rate = 960000 / 4  # Effective sample rate after downsampling
-            freq_bin_width: float = sample_rate / len(downsampled)
+            sample_rate = 960000 / 8  # Effective sample rate after downsampling
+            freq_bin_width: float = sample_rate / fft_size
             frequencies: np.ndarray = self.manual_freq + np.arange(
-                -len(downsampled) // 2, len(downsampled) // 2, 2
+                -fft_size // 2, fft_size // 2, 4
             ) * freq_bin_width
             
             # Put spectrum data into queue (non-blocking)

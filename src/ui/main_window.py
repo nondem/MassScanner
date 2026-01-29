@@ -238,8 +238,8 @@ class MainWindow(ctk.CTk):
         settings_label = ctk.CTkLabel(settings_frame, text="Settings", font=ctk.CTkFont(size=12, weight="bold"))
         settings_label.pack(pady=(5, 10))
         
-        # Spectrum Display Toggle
-        self.spectrum_enabled = ctk.BooleanVar(value=True)
+        # Spectrum Display Toggle (disabled by default for better responsiveness)
+        self.spectrum_enabled = ctk.BooleanVar(value=False)
         spectrum_check = ctk.CTkCheckBox(settings_frame, text="Spectrum Display", variable=self.spectrum_enabled,
                                          command=self._on_spectrum_toggle)
         spectrum_check.pack(anchor="w", padx=10, pady=(0, 10))
@@ -279,10 +279,10 @@ class MainWindow(ctk.CTk):
         
         # Buffer
         ctk.CTkLabel(settings_frame, text="Buffer Size", font=ctk.CTkFont(size=11, weight="bold")).pack(pady=(5, 0))
-        self.buffer_value_label = ctk.CTkLabel(settings_frame, text="200k", text_color="#3498db")
+        self.buffer_value_label = ctk.CTkLabel(settings_frame, text="130k", text_color="#3498db")
         self.buffer_value_label.pack(pady=(0, 2))
         self.buffer_slider = ctk.CTkSlider(settings_frame, from_=50000, to=500000, number_of_steps=450, command=self._on_buffer_change)
-        self.buffer_slider.set(204800)
+        self.buffer_slider.set(133120)
         self.buffer_slider.pack(fill="x", padx=5, pady=(0, 10))
         
         # PPM Correction
@@ -588,8 +588,9 @@ class MainWindow(ctk.CTk):
             self.spectrum_line.set_ydata(power_spectrum)
             self.spectrum_ax.set_xlim(freq_mhz.min(), freq_mhz.max())
             p_min, p_max = power_spectrum.min(), power_spectrum.max()
-            margin = (p_max - p_min) * 0.1
+            margin = (p_max - p_min) * 0.1 if (p_max - p_min) > 0 else 10
             self.spectrum_ax.set_ylim(p_min - margin, p_max + margin)
+            # Use efficient blitting to redraw only changed regions
             self.spectrum_canvas.draw_idle()
         except Exception: pass
     
