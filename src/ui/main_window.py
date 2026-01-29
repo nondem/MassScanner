@@ -115,6 +115,26 @@ class MainWindow(ctk.CTk):
         self.mode_button.set("Manual Radio")
         self.mode_button.pack(fill="x", padx=5, pady=(0, 10))
         
+        # --- Demodulation Mode ---
+        demod_frame = ctk.CTkFrame(sidebar)
+        demod_frame.pack(fill="x", padx=5, pady=(0, 15))
+        
+        demod_label = ctk.CTkLabel(demod_frame, text="Demod Mode", font=ctk.CTkFont(size=12, weight="bold"))
+        demod_label.pack(pady=(5, 5))
+        
+        self.demod_mode = ctk.StringVar(value="NFM")
+        nfm_radio = ctk.CTkRadioButton(demod_frame, text="NFM (Narrow)", variable=self.demod_mode, 
+                                       value="NFM", command=self._on_demod_mode_change)
+        nfm_radio.pack(anchor="w", padx=10, pady=2)
+        
+        wfm_radio = ctk.CTkRadioButton(demod_frame, text="WFM (Broadcast)", variable=self.demod_mode, 
+                                       value="WFM", command=self._on_demod_mode_change)
+        wfm_radio.pack(anchor="w", padx=10, pady=2)
+        
+        am_radio = ctk.CTkRadioButton(demod_frame, text="AM", variable=self.demod_mode, 
+                                      value="AM", command=self._on_demod_mode_change)
+        am_radio.pack(anchor="w", padx=10, pady=2)
+        
         # --- Frame 2: Manual Tuning ---
         tuning_frame = ctk.CTkFrame(sidebar)
         tuning_frame.pack(fill="x", padx=5, pady=(0, 15))
@@ -184,6 +204,12 @@ class MainWindow(ctk.CTk):
         
         settings_label = ctk.CTkLabel(settings_frame, text="Settings", font=ctk.CTkFont(size=12, weight="bold"))
         settings_label.pack(pady=(5, 10))
+        
+        # Spectrum Display Toggle
+        self.spectrum_enabled = ctk.BooleanVar(value=True)
+        spectrum_check = ctk.CTkCheckBox(settings_frame, text="Spectrum Display", variable=self.spectrum_enabled,
+                                         command=self._on_spectrum_toggle)
+        spectrum_check.pack(anchor="w", padx=10, pady=(0, 10))
         
         # Squelch Level
         ctk.CTkLabel(settings_frame, text="Squelch Level", font=ctk.CTkFont(size=11, weight="bold")).pack(pady=(5, 0))
@@ -407,6 +433,18 @@ class MainWindow(ctk.CTk):
     
     def _on_freq_up(self) -> None:
         self.change_freq_step(0.025)
+    
+    def _on_spectrum_toggle(self) -> None:
+        """Handle spectrum display toggle."""
+        enabled = self.spectrum_enabled.get()
+        self.scanner.set_spectrum_enabled(enabled)
+        print(f"Spectrum display {'enabled' if enabled else 'disabled'}")
+    
+    def _on_demod_mode_change(self) -> None:
+        """Handle demodulation mode change (NFM, WFM, AM)."""
+        mode = self.demod_mode.get()
+        self.scanner.set_demod_mode(mode)
+        print(f"Demodulation mode changed to {mode}")
     
     def _on_volume_change(self, value: float) -> None:
         vol = int(float(value))

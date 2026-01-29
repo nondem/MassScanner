@@ -82,6 +82,8 @@ class Scanner(threading.Thread):
         self.manual_mode: bool = False
         self.manual_freq: float = 144.0e6  # Default: 2m amateur band
         self.buffer_size: int = 204800  # Default buffer size (200 * 1024, divisible by 20)
+        self.demod_mode: str = "NFM"  # Demodulation mode: NFM, WFM, or AM
+        self.spectrum_enabled: bool = True  # Whether to generate spectrum data
         
         # Initialize audio demodulator and stream
         self._init_audio_stream()
@@ -204,6 +206,10 @@ class Scanner(threading.Thread):
         
         print(f"Manual mode: streaming audio from {self.manual_freq/1e6:.3f} MHz at 960 kHz sample rate")
         
+        # Spectrum update throttling
+        spectrum_counter = 0
+        spectrum_update_interval = 10  # Send spectrum data every 10th iteration (less frequent)
+        
         while self.scan_paused.is_set() and self.manual_mode:
             try:
                 # Read samples using dynamic buffer size (divisible by 20)
@@ -217,16 +223,65 @@ class Scanner(threading.Thread):
                 audio_data = self.demodulator.demodulate(
                     samples, 
                     sample_rate=960000,
-                    squelch_threshold_db=self.squelch_value
+                    squelch_threshold_db=self.squelch_value,
+                    mode=self.demod_mode
                 )
                 
                 # Stream audio (non-blocking write)
                 if len(audio_data) > 0:
                     self.audio_stream.write(audio_data)
+                
+                # Update spectrum data periodically (less frequently to reduce load)
+                spectrum_counter += 1
+                if self.spectrum_enabled and spectrum_counter >= spectrum_update_interval and self.raw_data_queue is not None and self.raw_data_queue.empty():
+                    spectrum_counter = 0
+                    self._generate_spectrum_data(samples)
             
             except Exception as e:
                 print(f"Error in manual mode: {e}")
                 time.sleep(0.1)
+    
+    def _generate_spectrum_data(self, samples: np.ndarray) -> None:
+        """
+        Generate spectrum data from IQ samples and send to raw_data_queue.
+        Uses downsampling and reduced resolution to minimize CPU load.
+        
+        Args:
+            samples: Complex IQ samples from the SDR
+        """
+        try:
+            # Downsample samples for faster FFT (every 4th sample)
+            downsampled = samples[::4]
+            
+            # Perform FFT on downsampled samples
+            fft_result: np.ndarray = np.fft.fft(downsampled)
+            
+            # Shift zero frequency to center
+            fft_shifted: np.ndarray = np.fft.fftshift(fft_result)
+            
+            # Calculate power spectrum in dB
+            power_spectrum: np.ndarray = 10 * np.log10(
+                np.abs(fft_shifted) ** 2 + 1e-10
+            )
+            
+            # Further reduce resolution by averaging bins (every 2 bins)
+            power_spectrum = power_spectrum[::2]
+            
+            # Calculate frequency bins for the spectrum (adjusted for downsampling)
+            sample_rate = 960000 / 4  # Effective sample rate after downsampling
+            freq_bin_width: float = sample_rate / len(downsampled)
+            frequencies: np.ndarray = self.manual_freq + np.arange(
+                -len(downsampled) // 2, len(downsampled) // 2, 2
+            ) * freq_bin_width
+            
+            # Put spectrum data into queue (non-blocking)
+            try:
+                self.raw_data_queue.put_nowait((frequencies, power_spectrum))
+            except:
+                pass  # Queue full, skip this update
+        
+        except Exception as e:
+            print(f"Error generating spectrum data: {e}")
     
     def _scan_band(self, band: Dict[str, Any]) -> None:
         """
@@ -412,6 +467,34 @@ class Scanner(threading.Thread):
             self.buffer_size = safe_size
         
         print(f"Buffer size updated to {safe_size} samples (divisible by 20)")
+    
+    def set_demod_mode(self, mode: str) -> None:
+        """
+        Set the demodulation mode (NFM, WFM, or AM).
+        
+        Args:
+            mode: Demodulation mode string
+        """
+        if mode not in ["NFM", "WFM", "AM"]:
+            print(f"Invalid demod mode: {mode}. Using NFM.")
+            mode = "NFM"
+        
+        with self._lock:
+            self.demod_mode = mode
+        
+        print(f"Demodulation mode set to {mode}")
+    
+    def set_spectrum_enabled(self, enabled: bool) -> None:
+        """
+        Enable or disable spectrum display generation.
+        
+        Args:
+            enabled: True to enable spectrum display, False to disable
+        """
+        with self._lock:
+            self.spectrum_enabled = enabled
+        
+        print(f"Spectrum display {'enabled' if enabled else 'disabled'}")
     
     def get_current_gain(self) -> float:
         """
