@@ -1,0 +1,24 @@
+[
+  {
+    "id": "2m_amateur",
+    "name": "2 Meter Amateur Band",
+    "enabled": true,
+    "start_freq_hz": 144000000,
+    "end_freq_hz": 148000000,
+    "step_size_hz": 25000,
+    "gain": "auto",
+    "dwell_time_ms": 250,
+    "threshold_db": 10
+  },
+  {
+    "id": "air_band",
+    "name": "Civil Air Band",
+    "enabled": false,
+    "start_freq_hz": 118000000,
+    "end_freq_hz": 136000000,
+    "step_size_hz": 8333,
+    "gain": 40,
+    "dwell_time_ms": 150,
+    "threshold_db": 6
+  }
+]
